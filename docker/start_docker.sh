@@ -1,0 +1,1 @@
+docker run -d --privileged   -p 8000:8000   --name insurance_qa  1dda921bec67   sh -c "cd /workdir && python -m uvicorn main:app --host 0.0.0.0 --port 8000"
