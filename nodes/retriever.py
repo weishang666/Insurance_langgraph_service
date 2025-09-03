@@ -128,24 +128,50 @@ class RetrieverNode:
                             return state
                     else:
                         # 2. 将每个候选答案转换为向量并搜索文档
-                        all_retrieved_docs = []
+                        # 使用字典存储每个候选答案的检索结果和分数
+                        answer_dicts = []
                         for i, answer in enumerate(candidate_answers):
                             answer_vector = llm_client.get_text_embedding(answer)
                             # 每个向量匹配10条结果
                             retrieved_texts = es_utils.search_by_vector_and_product(product_name, answer_vector, size=10)
                             print(f"RetrieverNode: 候选答案{i+1}检索到 {len(retrieved_texts)} 条结果")
                             
-                            # 为每个检索结果添加分数和来源信息
-                            for text in retrieved_texts:
-                                score = RetrieverNode.score_document(text, answer)
-                                all_retrieved_docs.append({
-                                    "content": text,
-                                    "score": score,
-                                    "source_answer": i+1
-                                })
+                            # 创建当前答案的检索结果字典，按位置赋值分数（第一个1分，第二个0.9分...）
+                            answer_dict = {}
+                            for idx, text in enumerate(retrieved_texts):
+                                # 计算分数：1.0, 0.9, 0.8, ..., 0.1
+                                score = max(0.1, 1.0 - idx * 0.1)
+                                answer_dict[text] = score
+                            
+                            answer_dicts.append(answer_dict)
+                        print("***********30个匹配answer_dicts****************")    
+                        print(answer_dicts)
+
+                        # 3. 从3个字典中取内容相似度高的交集5个
+                        # 首先统计每个文档在多少个字典中出现
+                        doc_counts = {}
+                        all_docs = {}                 
+                        for i, answer_dict in enumerate(answer_dicts):
+                            for text, score in answer_dict.items():
+                                if text not in doc_counts:
+                                    doc_counts[text] = 0
+                                doc_counts[text] += 1
+                                
+                                # 存储每个文档的最高分数
+                                if text not in all_docs or score > all_docs[text]:
+                                    all_docs[text] = score
                         
-                        # 3. 对所有检索结果进行去重和排序
-                        retrieved_docs = RetrieverNode.process_retrieved_docs(all_retrieved_docs)
+                        # 计算综合分数：出现次数越多，分数越高
+                        # 优先选择在多个字典中出现的文档（交集）
+                        # 然后按照文档分数排序
+                        sorted_docs = sorted(all_docs.items(), key=lambda x: (doc_counts[x[0]], x[1]), reverse=True)
+                        print("*********sorted_docs**************")
+                        print(sorted_docs)
+                        
+                        # 选择前5个文档
+                        top_docs = sorted_docs[:5]
+                        retrieved_docs = [{"content": text} for text, score in top_docs]
+                        
                         print(f"RetrieverNode: 处理后检索到 {len(retrieved_docs)} 条结果")
                         
                         if not retrieved_docs:
@@ -246,7 +272,7 @@ class RetrieverNode:
             prompt = f"用户询问关于{product_name}的问题：{query}\n请从不同角度生成{k}个可能的答案，每个答案用换行符分隔，不要添加序号或其他标记。"
             
             # 调用大模型生成回答
-            result = llm_client.generate(prompt, system_prompt, max_tokens=500)
+            result = llm_client.generate(prompt, system_prompt, max_tokens=1000)
             
             # 处理结果，分割成k个答案
             answers = result.strip().split('\n')
@@ -258,103 +284,6 @@ class RetrieverNode:
             print(f"生成候选答案失败: {str(e)}")
             return []
             
-    @staticmethod
-    def score_document(doc_text: str, query_text: str) -> float:
-        """计算文档与查询的相关性分数（0-1，保留1位小数）
-        
-        参数:
-            doc_text: 文档文本
-            query_text: 查询文本
-        
-        返回:
-            相关性分数
-        """
-        try:
-            # 转换为小写
-            doc_text = doc_text.lower()
-            query_text = query_text.lower()
-            
-            # 简单的词频匹配评分
-            query_words = set(query_text.split())
-            doc_words = set(doc_text.split())
-            
-            # 如果查询词为空，返回默认分数
-            if not query_words:
-                return 0.5
-            
-            # 计算交集
-            intersection = query_words.intersection(doc_words)
-            
-            # 计算基础分数
-            base_score = len(intersection) / len(query_words)
-            
-            # 考虑文档长度的影响
-            doc_length = len(doc_text)
-            # 文档太短或太长都不太理想
-            if doc_length < 20:
-                length_factor = 0.5  # 太短的文档可能不够相关
-            elif doc_length > 500:
-                length_factor = 0.8  # 太长的文档可能包含太多无关信息
-            else:
-                length_factor = 1.0
-            
-            # 综合评分
-            final_score = min(1.0, base_score * length_factor)
-            # 保留1位小数
-            final_score = round(final_score, 1)
-            
-            return final_score
-        except Exception as e:
-            print(f"计算文档分数失败: {str(e)}")
-            return 0.0
-            
-    @staticmethod
-    def process_retrieved_docs(all_docs: list, top_k: int = 5) -> list:
-        """处理所有检索到的文档，去重、排序并选择最优的top_k个
-        
-        参数:
-            all_docs: 所有检索到的文档列表，每个文档包含content、score和source_answer
-            top_k: 最终返回的文档数量
-        
-        返回:
-            处理后的文档列表
-        """
-        try:
-            # 按文档内容分组，计算平均分数
-            doc_groups = {}
-            for doc in all_docs:
-                content = doc["content"]
-                if content not in doc_groups:
-                    doc_groups[content] = {"scores": [], "sources": []}
-                doc_groups[content]["scores"].append(doc["score"])
-                doc_groups[content]["sources"].append(doc["source_answer"])
-            
-            # 计算每个文档的平均分数和来源数量
-            processed_docs = []
-            for content, info in doc_groups.items():
-                avg_score = sum(info["scores"]) / len(info["scores"])
-                source_count = len(set(info["sources"]))  # 去重后的来源数量
-                
-                # 来源越多，分数越高
-                score_boost = min(0.2, source_count * 0.05)  # 最多增加0.2分
-                final_score = min(1.0, avg_score + score_boost)
-                
-                processed_docs.append({
-                    "content": content,
-                    "final_score": final_score,
-                    "source_count": source_count
-                })
-            
-            # 按最终分数排序
-            processed_docs.sort(key=lambda x: x["final_score"], reverse=True)
-            
-            # 转换为所需格式并返回前top_k个
-            result_docs = [{"content": doc["content"]} for doc in processed_docs[:top_k]]
-            
-            return result_docs
-        except Exception as e:
-            print(f"处理检索文档失败: {str(e)}")
-            return []
     
     @staticmethod
     def extract_chunk_type(query: str) -> str:
