@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, AsyncGenerator
@@ -16,6 +17,15 @@ if workspace_dir not in sys.path:
     sys.path.append(workspace_dir)
 
 app = FastAPI(title="保险业务-智能问答")
+
+# 允许跨域（本地打开 index.html 时需要）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 创建默认的内存检查点保存器
 default_memory = InMemorySaver()

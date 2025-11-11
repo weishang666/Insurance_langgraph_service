@@ -3,6 +3,7 @@ from es_utils import ESUtils
 from llm_client import LLMClient
 import re
 import numpy as np
+from rank_bm25 import BM25Okapi
 
 class RetrieverNode:
     @staticmethod
@@ -168,8 +169,63 @@ class RetrieverNode:
                         print("*********sorted_docs**************")
                         print(sorted_docs)
                         
-                        # 选择前5个文档
-                        top_docs = sorted_docs[:5]
+                        # 选择前20个文档
+                        top_docs = sorted_docs[:20]
+                        
+                        # 使用BM25算法对文档进行重新排序
+                        if top_docs and user_query:
+                            # 提取文档文本列表
+                            doc_texts = [text for text, score in top_docs]
+                            
+                            # 对中文文本进行分词（混合模式：中文按字符，英文按单词）
+                            def tokenize_chinese(text):
+                                """中文分词：中文字符按字符分割，英文按单词分割"""
+                                tokens = []
+                                current_word = []
+                                
+                                for char in text:
+                                    # 中文字符
+                                    if '\u4e00' <= char <= '\u9fff':
+                                        if current_word:
+                                            # 将累积的英文单词添加到tokens
+                                            tokens.append(''.join(current_word).lower())
+                                            current_word = []
+                                        tokens.append(char)
+                                    # 英文字母或数字
+                                    elif char.isalnum():
+                                        current_word.append(char)
+                                    # 空格或标点符号
+                                    else:
+                                        if current_word:
+                                            tokens.append(''.join(current_word).lower())
+                                            current_word = []
+                                
+                                # 处理末尾的单词
+                                if current_word:
+                                    tokens.append(''.join(current_word).lower())
+                                
+                                return [token for token in tokens if token.strip()]
+                            
+                            # 对查询和文档进行分词
+                            query_tokens = tokenize_chinese(user_query)
+                            corpus = [tokenize_chinese(doc) for doc in doc_texts]
+                            
+                            # 创建BM25索引并计算分数
+                            bm25 = BM25Okapi(corpus)
+                            bm25_scores = bm25.get_scores(query_tokens)
+                            
+                            # 将文档与BM25分数配对，并按分数降序排序
+                            doc_scores = list(zip(doc_texts, bm25_scores))
+                            doc_scores.sort(key=lambda x: x[1], reverse=True)
+                            
+                            # 选择前6个文档
+                            top_docs = [(text, score) for text, score in doc_scores[:6]]
+                            print(f"RetrieverNode: 使用BM25排序后选择前6个文档")
+                            print(f"RetrieverNode: BM25分数: {[score for _, score in top_docs]}")
+                        else:
+                            # 如果没有文档或查询，只取前6个
+                            top_docs = top_docs[:6]
+                        
                         retrieved_docs = [{"content": text} for text, score in top_docs]
                         
                         print(f"RetrieverNode: 处理后检索到 {len(retrieved_docs)} 条结果")

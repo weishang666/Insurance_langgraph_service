@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>问答系统前端</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="title">问答系统</div>
+        <div class="settings">
+          <input id="endpoint-input" class="endpoint-input" type="text" placeholder="后端地址，如 http://127.0.0.1:8000/insurance/question-inquiry" />
+          <button id="save-endpoint-btn" class="save-btn" type="button">保存地址</button>
+        </div>
+      </header>
+
+      <main class="chat">
+        <div class="meta">
+          <span>本页 user_id：</span>
+          <code id="user-id"></code>
+        </div>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chat-form" class="chat-form" autocomplete="off">
+          <textarea id="question-input" class="question-input" rows="2" placeholder="请输入你的问题..." required></textarea>
+          <div class="actions">
+            <button id="send-btn" class="send-btn" type="submit">发送</button>
+          </div>
+        </form>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+  </html>
+
+

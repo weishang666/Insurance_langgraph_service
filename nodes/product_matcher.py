@@ -43,6 +43,7 @@ class ProductMatcherNode:
             print(f"ProductMatcherNode: 模糊匹配到 {len(matched_products)} 个产品")
             print('match_state:',state.product_data)
             # 根据匹配数量决定下一个节点
+            
             if len(matched_products) == 1:
                 # 只有一个匹配结果，直接进入retrieve节点
                 state.next_node = "retrieve"
